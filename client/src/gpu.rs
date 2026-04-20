@@ -1,8 +1,7 @@
 use wgpu::{
     DeviceDescriptor, Extent3d, Features, InstanceDescriptor, Limits, MemoryHints, PowerPreference,
     RequestAdapterOptions, SurfaceConfiguration, SurfaceTarget, TextureAspect, TextureDescriptor,
-    TextureDimension, TextureUsages, TextureUsages as TextureUsages_, TextureViewDescriptor,
-    TextureViewDimension, Trace,
+    TextureDimension, TextureUsages, TextureViewDescriptor, TextureViewDimension, Trace,
 };
 
 pub struct Gpu {
@@ -36,14 +35,14 @@ impl Gpu {
             sample_count: 1,
             dimension: TextureDimension::D2,
             format: wgpu::TextureFormat::Depth32Float,
-            usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages_::TEXTURE_BINDING,
+            usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
         texture.create_view(&TextureViewDescriptor {
             label: None,
             format: Some(wgpu::TextureFormat::Depth32Float),
             dimension: Some(TextureViewDimension::D2),
-            aspect: TextureAspect::All,
+            aspect: TextureAspect::DepthOnly,
             base_mip_level: 0,
             base_array_layer: 0,
             array_layer_count: None,
@@ -68,34 +67,42 @@ impl Gpu {
             })
             .await
             .expect("Failed to request adapter!");
-        let (device, queue) = {
-            log::info!("WGPU Adapter Features: {:#?}", adapter.features());
-            adapter
-                .request_device(&DeviceDescriptor {
-                    label: Some("WGPU Device"),
-                    memory_hints: MemoryHints::default(),
-                    required_features: Features::default(),
-                    #[cfg(not(target_arch = "wasm32"))]
-                    required_limits: Limits::default().using_resolution(adapter.limits()),
-                    #[cfg(all(target_arch = "wasm32", feature = "webgpu"))]
-                    required_limits: Limits::default().using_resolution(adapter.limits()),
-                    #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
-                    required_limits: Limits::downlevel_webgl2_defaults()
-                        .using_resolution(adapter.limits()),
-                    trace: Trace::Off,
-                })
-                .await
-                .expect("Failed to request a device!")
-        };
+
+        log::info!("WGPU Adapter Features: {:#?}", adapter.features());
+
+        let (device, queue) = adapter
+            .request_device(&DeviceDescriptor {
+                label: Some("WGPU Device"),
+                memory_hints: MemoryHints::default(),
+                required_features: Features::default(),
+                required_limits: Limits::default().using_resolution(adapter.limits()),
+                trace: Trace::Off,
+            })
+            .await
+            .expect("Failed to request a device!");
 
         let surface_capabilities = surface.get_capabilities(&adapter);
 
+        // Prefer an sRGB surface so the browser compositor receives correctly
+        // gamma-encoded values. Without this, linear colour output is
+        // reinterpreted as sRGB by the compositor and colours appear washed out.
+        // If no sRGB format is available we fall back to whatever is first, but
+        // that should never happen on a WebGPU-capable browser.
         let surface_format = surface_capabilities
             .formats
             .iter()
             .copied()
-            .find(|f| !f.is_srgb())
-            .unwrap_or(surface_capabilities.formats[0]);
+            .find(|f| f.is_srgb())
+            .unwrap_or_else(|| {
+                log::warn!(
+                    "No sRGB surface format available — colours may appear incorrect. \
+                     Falling back to {:?}.",
+                    surface_capabilities.formats[0]
+                );
+                surface_capabilities.formats[0]
+            });
+
+        log::info!("Selected surface format: {:?}", surface_format);
 
         let surface_config = SurfaceConfiguration {
             usage: TextureUsages::RENDER_ATTACHMENT,

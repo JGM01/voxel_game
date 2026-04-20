@@ -21,10 +21,6 @@ pub fn initial_size(window: &Arc<Window>) -> (u32, u32) {
     (size.width, size.height)
 }
 
-/// Blocks the calling thread until the renderer is constructed, then
-/// immediately resolves the channel. From app.rs's perspective this is
-/// identical to the async web path — the receiver just has a value ready
-/// on the very first poll.
 pub fn spawn_renderer(
     window: Arc<Window>,
     width: u32,
@@ -38,3 +34,6 @@ pub fn spawn_renderer(
 pub fn on_escape(event_loop: &ActiveEventLoop) {
     event_loop.exit();
 }
+
+/// No-op on native — the OS drives `WindowEvent::Resized` directly.
+pub fn install_canvas_resizer(_window: Arc<Window>) {}

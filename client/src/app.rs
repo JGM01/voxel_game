@@ -36,11 +36,14 @@ impl ApplicationHandler for App {
             return;
         }
 
-        // Everything below runs exactly once, on the first resumed call.
         platform::init_logging();
 
         let (width, height) = platform::initial_size(&window_handle);
         self.last_size = (width, height);
+
+        // Wire up CSS resize propagation on web. On native this is a no-op
+        // because the OS drives WindowEvent::Resized directly.
+        platform::install_canvas_resizer(window_handle.clone());
 
         let (sender, receiver) = oneshot::channel();
         self.renderer_receiver = Some(receiver);
@@ -73,11 +76,8 @@ impl ApplicationHandler for App {
         _window_id: WindowId,
         event: WindowEvent,
     ) {
-        // Poll the receiver on every event. On native the value is available
-        // immediately; on web it arrives after the async GPU init resolves.
         if let Some(receiver) = self.renderer_receiver.as_mut() {
             if let Ok(Some(mut renderer)) = receiver.try_recv() {
-                // Re-sync size in case the window was resized during async init.
                 if let Some(window) = self.window.as_ref() {
                     let size = window.inner_size();
                     if size.width > 0 && size.height > 0 {

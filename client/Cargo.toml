@@ -1,5 +1,5 @@
 [package]
-name = "app"
+name = "client"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.90"
@@ -15,9 +15,22 @@ bytemuck = { version = "1.23.2", features = ["derive"] }
 futures = "0.3.31"
 glam = { version = "0.32.1", features = ["bytemuck"] }
 log = "0.4.28"
-web-sys = "0.3.95"
+web-sys = { version = "0.3.95", features = [
+    "HtmlCanvasElement",
+    "ResizeObserver",
+    "ResizeObserverEntry",
+    "DomRectReadOnly",
+    "Window",
+    "Document",
+] }
 web-time = "1.1.0"
-wgpu = { version = "25.0.2", default-features = false }
+wgpu = { version = "25.0.2", default-features = false, features = [
+    "wgsl",
+    "webgpu",
+    "vulkan",
+    "metal",
+    "dx12",
+] }
 winit = "0.30.12"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -27,10 +40,6 @@ pollster = "0.4.0"
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 console_error_panic_hook = "0.1.7"
 console_log = "1.0.0"
+js-sys = "0.3.95"
 wasm-bindgen = "0.2.104"
 wasm-bindgen-futures = "0.4.54"
-
-[features]
-default = ["wgpu/default"]
-webgl = ["wgpu/webgl"]
-webgpu = ["wgpu/webgpu"]
