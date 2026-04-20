@@ -1,7 +1,6 @@
-#[cfg(target_arch = "wasm32")]
-use wasm_bindgen::prelude::*;
-
 use std::sync::Arc;
+
+use futures::channel::oneshot;
 use web_time::Instant;
 use winit::{
     application::ApplicationHandler,
@@ -11,95 +10,41 @@ use winit::{
     window::{Window, WindowId},
 };
 
-use crate::renderer::Renderer;
+use crate::{platform, renderer::Renderer};
 
 #[derive(Default)]
 pub struct App {
     window: Option<Arc<Window>>,
     renderer: Option<Renderer>,
+    renderer_receiver: Option<oneshot::Receiver<Renderer>>,
     last_render_time: Option<Instant>,
-    #[cfg(target_arch = "wasm32")]
-    renderer_receiver: Option<futures::channel::oneshot::Receiver<Renderer>>,
     last_size: (u32, u32),
     cursor_locked: bool,
 }
 
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        let mut attributes = Window::default_attributes();
-
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            attributes = attributes.with_title("Standalone Winit/Wgpu Example");
-        }
-
-        #[allow(unused_assignments)]
-        #[cfg(target_arch = "wasm32")]
-        let (mut canvas_width, mut canvas_height) = (0, 0);
-
-        #[cfg(target_arch = "wasm32")]
-        {
-            use winit::platform::web::WindowAttributesExtWebSys;
-            let canvas = wgpu::web_sys::window()
-                .unwrap()
-                .document()
-                .unwrap()
-                .get_element_by_id("canvas")
-                .unwrap()
-                .dyn_into::<wgpu::web_sys::HtmlCanvasElement>()
-                .unwrap();
-
-            canvas_width = canvas.width();
-            canvas_height = canvas.height();
-            self.last_size = (canvas_width, canvas_height);
-            attributes = attributes.with_canvas(Some(canvas));
-        }
-
-        let Ok(window) = event_loop.create_window(attributes) else {
+        let Ok(window) = event_loop.create_window(platform::window_attributes()) else {
             return;
         };
 
         let first_window_handle = self.window.is_none();
         let window_handle = Arc::new(window);
         self.window = Some(window_handle.clone());
+
         if !first_window_handle {
             return;
         }
 
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            let inner_size = window_handle.inner_size();
-            self.last_size = (inner_size.width, inner_size.height);
-        }
+        // Everything below runs exactly once, on the first resumed call.
+        platform::init_logging();
 
-        #[cfg(not(target_arch = "wasm32"))]
-        let (width, height) = (
-            window_handle.inner_size().width,
-            window_handle.inner_size().height,
-        );
+        let (width, height) = platform::initial_size(&window_handle);
+        self.last_size = (width, height);
 
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            env_logger::init();
-            let renderer = pollster::block_on(Renderer::new(window_handle.clone(), width, height));
-            self.renderer = Some(renderer);
-        }
-
-        #[cfg(target_arch = "wasm32")]
-        {
-            let (sender, receiver) = futures::channel::oneshot::channel();
-            self.renderer_receiver = Some(receiver);
-            std::panic::set_hook(Box::new(console_error_panic_hook::hook));
-            console_log::init().expect("Failed to initialize logger!");
-            log::info!("Canvas dimensions: ({canvas_width} x {canvas_height})");
-            wasm_bindgen_futures::spawn_local(async move {
-                let renderer =
-                    Renderer::new(window_handle.clone(), canvas_width, canvas_height).await;
-                if sender.send(renderer).is_err() {
-                    log::error!("Failed to create and send renderer!");
-                }
-            });
-        }
+        let (sender, receiver) = oneshot::channel();
+        self.renderer_receiver = Some(receiver);
+        platform::spawn_renderer(window_handle, width, height, sender);
 
         self.last_render_time = Some(Instant::now());
     }
@@ -128,25 +73,19 @@ impl ApplicationHandler for App {
         _window_id: WindowId,
         event: WindowEvent,
     ) {
-        #[cfg(target_arch = "wasm32")]
-        {
-            let mut renderer_received = false;
-            if let Some(receiver) = self.renderer_receiver.as_mut() {
-                if let Ok(Some(mut renderer)) = receiver.try_recv() {
-                    // Sync initial size
-                    if let Some(window) = self.window.as_ref() {
-                        let size = window.inner_size();
-                        if size.width > 0 && size.height > 0 {
-                            renderer.resize(size.width, size.height);
-                            self.last_size = (size.width, size.height);
-                        }
+        // Poll the receiver on every event. On native the value is available
+        // immediately; on web it arrives after the async GPU init resolves.
+        if let Some(receiver) = self.renderer_receiver.as_mut() {
+            if let Ok(Some(mut renderer)) = receiver.try_recv() {
+                // Re-sync size in case the window was resized during async init.
+                if let Some(window) = self.window.as_ref() {
+                    let size = window.inner_size();
+                    if size.width > 0 && size.height > 0 {
+                        renderer.resize(size.width, size.height);
+                        self.last_size = (size.width, size.height);
                     }
-
-                    self.renderer = Some(renderer);
-                    renderer_received = true;
                 }
-            }
-            if renderer_received {
+                self.renderer = Some(renderer);
                 self.renderer_receiver = None;
             }
         }
@@ -168,15 +107,11 @@ impl ApplicationHandler for App {
                 ..
             } => {
                 if !self.cursor_locked {
-                    // Lock cursor on first click
                     let _ = window.set_cursor_grab(winit::window::CursorGrabMode::Locked);
                     window.set_cursor_visible(false);
                     self.cursor_locked = true;
                 } else {
-                    // If already locked, perform world interaction
                     let is_right_click = button == winit::event::MouseButton::Right;
-
-                    // Call the interact method, passing the wgpu device and click type
                     renderer
                         .scene
                         .interact(&renderer.gpu.device, is_right_click);
@@ -194,21 +129,10 @@ impl ApplicationHandler for App {
                 if state == winit::event::ElementState::Pressed
                     && matches!(key_code, winit::keyboard::KeyCode::Escape)
                 {
-                    #[cfg(not(target_arch = "wasm32"))]
-                    {
-                        event_loop.exit();
-                    }
                     let _ = window.set_cursor_grab(winit::window::CursorGrabMode::None);
                     window.set_cursor_visible(true);
-                    #[cfg(target_arch = "wasm32")]
-                    {
-                        if let Some(web_window) = web_sys::window() {
-                            if let Some(document) = web_window.document() {
-                                document.exit_pointer_lock();
-                            }
-                        }
-                    }
                     self.cursor_locked = false;
+                    platform::on_escape(event_loop);
                 }
                 renderer
                     .scene
@@ -219,7 +143,6 @@ impl ApplicationHandler for App {
                 if width == 0 || height == 0 {
                     return;
                 }
-
                 log::info!("Resizing renderer surface to: ({width}, {height})");
                 renderer.resize(width, height);
                 self.last_size = (width, height);
@@ -232,7 +155,6 @@ impl ApplicationHandler for App {
                 let now = Instant::now();
                 let delta_time = now - *last_render_time;
                 *last_render_time = now;
-
                 renderer.render_frame(delta_time);
             }
             _ => (),
