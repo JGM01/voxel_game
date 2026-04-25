@@ -2078,7 +2078,9 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "axum-extra",
+ "futures-util",
  "glam",
+ "serde_json",
  "shared",
  "tokio",
  "tower-http",
@@ -2111,6 +2113,8 @@ name = "shared"
 version = "0.1.0"
 dependencies = [
  "glam",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

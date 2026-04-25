@@ -6,7 +6,9 @@ edition = "2024"
 [dependencies]
 axum = { version = "0.8.9", features = ["ws"] }
 axum-extra = { version = "0.12.6", features = ["typed-header"] }
+futures-util = "0.3.31"
 glam = { version = "0.32.1", features = ["bytemuck"] }
+serde_json = "1.0.145"
 shared = { path = "../shared" }
 tokio = { version = "1.52.1", features = ["full"] }
 tower-http = { version = "0.6.8", features = ["fs", "trace"] }
