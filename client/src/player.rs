@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use shared::protocol::PlayerId;
 use web_time::{Duration, Instant};
 use winit::{event::ElementState, keyboard::KeyCode};
@@ -15,7 +13,6 @@ pub struct Player {
     pub position: glam::Vec3,
     pub rotation: glam::Quat,
     pub camera: Camera,
-    pub remote_players: HashMap<PlayerId, RemotePlayer>,
     last_sent_position: glam::Vec3,
     last_sent_rotation: glam::Quat,
     last_move_sent: Option<Instant>,
@@ -58,7 +55,6 @@ impl Player {
             position,
             rotation,
             camera,
-            remote_players: HashMap::new(),
             last_sent_position: position,
             last_sent_rotation: rotation,
             last_move_sent: None,

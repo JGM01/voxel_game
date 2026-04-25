@@ -29,6 +29,7 @@ pub struct Scene {
     pub remote_player_mesh: Option<Mesh>,
 
     pub player: Player,
+    pub remote_players: std::collections::HashMap<PlayerId, RemotePlayer>,
     pub player_controller: PlayerController,
 }
 
@@ -56,6 +57,7 @@ impl Scene {
             remote_player_mesh: None,
             highlight_pipeline,
             player,
+            remote_players: std::collections::HashMap::new(),
             player_controller,
             crosshair_pipeline,
         }
@@ -174,7 +176,7 @@ impl Scene {
                     }
                 }
                 for player_id in disconnected_players {
-                    if self.player.remote_players.remove(&player_id).is_some() {
+                    if self.remote_players.remove(&player_id).is_some() {
                         remote_players_changed = true;
                     }
                 }
@@ -213,7 +215,7 @@ impl Scene {
         }
         self.remesh_chunk(device);
 
-        self.player.remote_players.clear();
+        self.remote_players.clear();
         for transform in snapshot.players {
             if transform.player_id == player_id {
                 self.player.set_transform(
@@ -221,7 +223,7 @@ impl Scene {
                     quat_from_array(transform.rotation),
                 );
             } else {
-                self.player.remote_players.insert(
+                self.remote_players.insert(
                     transform.player_id,
                     RemotePlayer {
                         position: glam::Vec3::from_array(transform.position),
@@ -245,12 +247,11 @@ impl Scene {
             rotation: quat_from_array(transform.rotation),
         };
 
-        if self.player.remote_players.get(&transform.player_id) == Some(&remote) {
+        if self.remote_players.get(&transform.player_id) == Some(&remote) {
             return false;
         }
 
-        self.player
-            .remote_players
+        self.remote_players
             .insert(transform.player_id, remote);
         true
     }
@@ -275,7 +276,7 @@ impl Scene {
     }
 
     fn rebuild_remote_player_mesh(&mut self, device: &wgpu::Device) {
-        let (vertices, indices) = build_remote_player_mesh(&self.player.remote_players);
+        let (vertices, indices) = build_remote_player_mesh(&self.remote_players);
         self.remote_player_mesh =
             (!indices.is_empty()).then(|| Mesh::new(device, &vertices, &indices));
     }
