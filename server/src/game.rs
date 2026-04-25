@@ -1,7 +1,7 @@
 use std::{collections::HashMap, time::Duration};
 
 use shared::{
-    chunk::{CHUNK_SIZE, Chunk},
+    chunk::Chunk,
     protocol::{BlockUpdate, PlayerId, PlayerTransform, ServerMessage, WorldSnapshot},
 };
 use tokio::{
@@ -247,10 +247,6 @@ fn player_transform(player_id: PlayerId, world: &World) -> Option<PlayerTransfor
         rotation: shared::math::quat_to_array(player.rotation),
     })
 }
-
-
-
-
 
 #[cfg(test)]
 mod tests {
