@@ -1,3 +1,17 @@
+use shared::protocol::{ClientMessage, ServerMessage};
+
+#[derive(Debug)]
+pub enum NetworkEvent {
+    Message(ServerMessage),
+    Fatal(String),
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum TryRecvNetworkEventError {
+    Empty,
+    Disconnected,
+}
+
 pub fn server_url_from_arg(arg: Option<String>) -> Result<String, String> {
     let Some(arg) = arg else {
         return Ok("ws://127.0.0.1:3000/ws".to_string());
@@ -30,14 +44,9 @@ mod native {
     use std::{sync::mpsc, thread};
 
     use futures::{SinkExt, StreamExt};
-    use shared::protocol::{ClientMessage, ServerMessage};
     use tokio_tungstenite::{connect_async, tungstenite::Message};
 
-    #[derive(Debug)]
-    pub enum NetworkEvent {
-        Message(ServerMessage),
-        Fatal(String),
-    }
+    use super::{ClientMessage, NetworkEvent, ServerMessage, TryRecvNetworkEventError};
 
     pub struct NetworkClient {
         incoming: mpsc::Receiver<NetworkEvent>,
@@ -66,8 +75,11 @@ mod native {
             }
         }
 
-        pub fn try_recv(&self) -> Result<NetworkEvent, mpsc::TryRecvError> {
-            self.incoming.try_recv()
+        pub fn try_recv(&self) -> Result<NetworkEvent, TryRecvNetworkEventError> {
+            self.incoming.try_recv().map_err(|error| match error {
+                mpsc::TryRecvError::Empty => TryRecvNetworkEventError::Empty,
+                mpsc::TryRecvError::Disconnected => TryRecvNetworkEventError::Disconnected,
+            })
         }
 
         pub fn send(&self, message: ClientMessage) {
@@ -152,7 +164,152 @@ mod native {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub use native::{NetworkClient, NetworkEvent};
+pub use native::NetworkClient;
+
+#[cfg(target_arch = "wasm32")]
+mod web {
+    use std::{
+        cell::{Cell, RefCell},
+        collections::VecDeque,
+        rc::Rc,
+    };
+
+    use wasm_bindgen::{JsCast, closure::Closure};
+    use web_sys::{CloseEvent, ErrorEvent, MessageEvent, WebSocket};
+
+    use super::{ClientMessage, NetworkEvent, ServerMessage, TryRecvNetworkEventError};
+
+    pub struct NetworkClient {
+        socket: Option<WebSocket>,
+        incoming: Rc<RefCell<VecDeque<NetworkEvent>>>,
+        connected: Rc<Cell<bool>>,
+        _onopen: Option<Closure<dyn FnMut(web_sys::Event)>>,
+        _onmessage: Option<Closure<dyn FnMut(MessageEvent)>>,
+        _onerror: Option<Closure<dyn FnMut(ErrorEvent)>>,
+        _onclose: Option<Closure<dyn FnMut(CloseEvent)>>,
+    }
+
+    impl NetworkClient {
+        pub fn connect(url: String) -> Self {
+            let incoming = Rc::new(RefCell::new(VecDeque::new()));
+            let connected = Rc::new(Cell::new(false));
+            let Ok(socket) = WebSocket::new(&url) else {
+                incoming.borrow_mut().push_back(NetworkEvent::Fatal(format!(
+                    "failed to create websocket for {url}"
+                )));
+                return Self {
+                    socket: None,
+                    incoming,
+                    connected,
+                    _onopen: None,
+                    _onmessage: None,
+                    _onerror: None,
+                    _onclose: None,
+                };
+            };
+
+            let onopen_connected = connected.clone();
+            let onopen = Closure::wrap(Box::new(move |_event: web_sys::Event| {
+                onopen_connected.set(true);
+            }) as Box<dyn FnMut(_)>);
+            socket.set_onopen(Some(onopen.as_ref().unchecked_ref()));
+
+            let onmessage_incoming = incoming.clone();
+            let onmessage = Closure::wrap(Box::new(move |event: MessageEvent| {
+                let Some(text) = event.data().as_string() else {
+                    onmessage_incoming
+                        .borrow_mut()
+                        .push_back(NetworkEvent::Fatal(
+                            "binary websocket messages are not supported".to_string(),
+                        ));
+                    return;
+                };
+
+                match serde_json::from_str::<ServerMessage>(&text) {
+                    Ok(message) => onmessage_incoming
+                        .borrow_mut()
+                        .push_back(NetworkEvent::Message(message)),
+                    Err(error) => onmessage_incoming
+                        .borrow_mut()
+                        .push_back(NetworkEvent::Fatal(format!(
+                            "invalid server message: {error}"
+                        ))),
+                }
+            }) as Box<dyn FnMut(_)>);
+            socket.set_onmessage(Some(onmessage.as_ref().unchecked_ref()));
+
+            let onerror_incoming = incoming.clone();
+            let onerror = Closure::wrap(Box::new(move |_event: ErrorEvent| {
+                onerror_incoming
+                    .borrow_mut()
+                    .push_back(NetworkEvent::Fatal("websocket error".to_string()));
+            }) as Box<dyn FnMut(_)>);
+            socket.set_onerror(Some(onerror.as_ref().unchecked_ref()));
+
+            let onclose_incoming = incoming.clone();
+            let onclose_connected = connected.clone();
+            let onclose = Closure::wrap(Box::new(move |event: CloseEvent| {
+                onclose_connected.set(false);
+                let reason = event.reason();
+                let message = if reason.is_empty() {
+                    format!("websocket closed with code {}", event.code())
+                } else {
+                    format!("websocket closed with code {}: {reason}", event.code())
+                };
+                onclose_incoming
+                    .borrow_mut()
+                    .push_back(NetworkEvent::Fatal(message));
+            }) as Box<dyn FnMut(_)>);
+            socket.set_onclose(Some(onclose.as_ref().unchecked_ref()));
+
+            Self {
+                socket: Some(socket),
+                incoming,
+                connected,
+                _onopen: Some(onopen),
+                _onmessage: Some(onmessage),
+                _onerror: Some(onerror),
+                _onclose: Some(onclose),
+            }
+        }
+
+        pub fn try_recv(&self) -> Result<NetworkEvent, TryRecvNetworkEventError> {
+            self.incoming
+                .borrow_mut()
+                .pop_front()
+                .ok_or(TryRecvNetworkEventError::Empty)
+        }
+
+        pub fn send(&self, message: ClientMessage) {
+            if !self.connected.get() {
+                return;
+            }
+
+            let Ok(text) = serde_json::to_string(&message) else {
+                return;
+            };
+
+            if let Some(socket) = &self.socket {
+                let _ = socket.send_with_str(&text);
+            }
+        }
+    }
+
+    impl Drop for NetworkClient {
+        fn drop(&mut self) {
+            if let Some(socket) = &self.socket {
+                socket.set_onopen(None);
+                socket.set_onmessage(None);
+                socket.set_onerror(None);
+                socket.set_onclose(None);
+                let _ = socket.close();
+            }
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+pub use web::NetworkClient;
 
 #[cfg(test)]
 mod tests {

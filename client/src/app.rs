@@ -6,14 +6,15 @@ use winit::{
     application::ApplicationHandler,
     dpi::PhysicalSize,
     event::WindowEvent,
-    event_loop::ActiveEventLoop,
+    event_loop::{ActiveEventLoop, EventLoopProxy},
     window::{Window, WindowId},
 };
 
-use crate::{platform, renderer::Renderer};
-
-#[cfg(not(target_arch = "wasm32"))]
-use crate::net::{NetworkClient, NetworkEvent};
+use crate::{
+    net::{NetworkClient, NetworkEvent, TryRecvNetworkEventError},
+    platform,
+    renderer::Renderer,
+};
 
 #[derive(Default)]
 pub struct App {
@@ -23,11 +24,16 @@ pub struct App {
     last_render_time: Option<Instant>,
     last_size: (u32, u32),
     cursor_locked: bool,
-    #[cfg(not(target_arch = "wasm32"))]
     network: Option<NetworkClient>,
+    network_disconnected: bool,
+    event_proxy: Option<EventLoopProxy<AppEvent>>,
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[derive(Clone, Copy, Debug)]
+pub enum AppEvent {
+    CursorLockChanged(bool),
+}
+
 impl App {
     pub fn new(server_url: String) -> Self {
         Self {
@@ -36,7 +42,16 @@ impl App {
         }
     }
 
+    pub fn with_event_proxy(mut self, event_proxy: EventLoopProxy<AppEvent>) -> Self {
+        self.event_proxy = Some(event_proxy);
+        self
+    }
+
     fn drain_network(&mut self, event_loop: &ActiveEventLoop) {
+        if self.network_disconnected {
+            return;
+        }
+
         let Some(network) = self.network.as_ref() else {
             return;
         };
@@ -47,6 +62,10 @@ impl App {
         loop {
             match network.try_recv() {
                 Ok(NetworkEvent::Message(message)) => {
+                    if matches!(message, shared::protocol::ServerMessage::Welcome { .. }) {
+                        platform::on_network_connected();
+                    }
+
                     if let Err(error) = renderer
                         .scene
                         .apply_server_message(&renderer.gpu.device, message)
@@ -58,12 +77,20 @@ impl App {
                 }
                 Ok(NetworkEvent::Fatal(error)) => {
                     log::error!("Network error: {error}");
+                    self.network_disconnected = true;
+                    self.network = None;
+                    platform::on_network_disconnect(&error);
+                    #[cfg(not(target_arch = "wasm32"))]
                     event_loop.exit();
                     return;
                 }
-                Err(std::sync::mpsc::TryRecvError::Empty) => return,
-                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                Err(TryRecvNetworkEventError::Empty) => return,
+                Err(TryRecvNetworkEventError::Disconnected) => {
                     log::error!("Network thread disconnected");
+                    self.network_disconnected = true;
+                    self.network = None;
+                    platform::on_network_disconnect("network thread disconnected");
+                    #[cfg(not(target_arch = "wasm32"))]
                     event_loop.exit();
                     return;
                 }
@@ -72,22 +99,25 @@ impl App {
     }
 
     fn send_network_message(&self, message: shared::protocol::ClientMessage) {
+        if self.network_disconnected {
+            return;
+        }
+
         if let Some(network) = self.network.as_ref() {
             network.send(message);
         }
     }
 }
 
-#[cfg(target_arch = "wasm32")]
-impl App {
-    pub fn new(_server_url: String) -> Self {
-        Self::default()
+impl ApplicationHandler<AppEvent> for App {
+    fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: AppEvent) {
+        match event {
+            AppEvent::CursorLockChanged(locked) => {
+                self.cursor_locked = locked;
+            }
+        }
     }
 
-    fn send_network_message(&self, _message: shared::protocol::ClientMessage) {}
-}
-
-impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let Ok(window) = event_loop.create_window(platform::window_attributes()) else {
             return;
@@ -109,6 +139,9 @@ impl ApplicationHandler for App {
         // Wire up CSS resize propagation on web. On native this is a no-op
         // because the OS drives WindowEvent::Resized directly.
         platform::install_canvas_resizer(window_handle.clone());
+        if let Some(event_proxy) = self.event_proxy.as_ref() {
+            platform::install_cursor_lock_observer(event_proxy.clone());
+        }
 
         let (sender, receiver) = oneshot::channel();
         self.renderer_receiver = Some(receiver);
@@ -155,7 +188,6 @@ impl ApplicationHandler for App {
             }
         }
 
-        #[cfg(not(target_arch = "wasm32"))]
         self.drain_network(event_loop);
 
         let Some(window) = self.window.as_ref() else {
@@ -175,9 +207,7 @@ impl ApplicationHandler for App {
                 ..
             } => {
                 if !self.cursor_locked {
-                    let _ = window.set_cursor_grab(winit::window::CursorGrabMode::Locked);
-                    window.set_cursor_visible(false);
-                    self.cursor_locked = true;
+                    self.cursor_locked = platform::lock_cursor(window);
                 } else {
                     let is_right_click = button == winit::event::MouseButton::Right;
                     if let Some(message) = renderer
@@ -200,8 +230,7 @@ impl ApplicationHandler for App {
                 if state == winit::event::ElementState::Pressed {
                     match key_code {
                         winit::keyboard::KeyCode::Escape => {
-                            let _ = window.set_cursor_grab(winit::window::CursorGrabMode::None);
-                            window.set_cursor_visible(true);
+                            platform::unlock_cursor(window);
                             self.cursor_locked = false;
                             platform::on_escape(event_loop);
                         }

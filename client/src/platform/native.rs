@@ -2,11 +2,11 @@ use std::sync::Arc;
 
 use futures::channel::oneshot;
 use winit::{
-    event_loop::ActiveEventLoop,
-    window::{Window, WindowAttributes},
+    event_loop::{ActiveEventLoop, EventLoopProxy},
+    window::{CursorGrabMode, Window, WindowAttributes},
 };
 
-use crate::renderer::Renderer;
+use crate::{app::AppEvent, renderer::Renderer};
 
 pub fn init_logging() {
     env_logger::init();
@@ -35,5 +35,22 @@ pub fn on_escape(_event_loop: &ActiveEventLoop) {
     // Native cursor release is handled through winit in the app event loop.
 }
 
+pub fn lock_cursor(window: &Window) -> bool {
+    let _ = window.set_cursor_grab(CursorGrabMode::Locked);
+    window.set_cursor_visible(false);
+    true
+}
+
+pub fn unlock_cursor(window: &Window) {
+    let _ = window.set_cursor_grab(CursorGrabMode::None);
+    window.set_cursor_visible(true);
+}
+
+pub fn on_network_disconnect(_message: &str) {}
+
+pub fn on_network_connected() {}
+
 /// No-op on native — the OS drives `WindowEvent::Resized` directly.
 pub fn install_canvas_resizer(_window: Arc<Window>) {}
+
+pub fn install_cursor_lock_observer(_event_proxy: EventLoopProxy<AppEvent>) {}

@@ -11,7 +11,7 @@ pub mod scene;
 pub mod uniform;
 pub mod vertex;
 
-pub use app::App;
+pub use app::{App, AppEvent};
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
@@ -25,8 +25,65 @@ use wasm_bindgen::prelude::*;
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(start)]
 pub fn wasm_main() {
-    let event_loop = winit::event_loop::EventLoop::new().unwrap();
-    event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
-    let mut app = App::default();
-    event_loop.run_app(&mut app).unwrap();
+    use wasm_bindgen::{JsCast, closure::Closure};
+    use winit::platform::web::EventLoopExtWebSys;
+
+    let window = web_sys::window().expect("missing browser window");
+    let document = window.document().expect("missing browser document");
+    let input = document
+        .get_element_by_id("server-url")
+        .expect("missing #server-url")
+        .dyn_into::<web_sys::HtmlInputElement>()
+        .expect("#server-url must be an input");
+    let button = document
+        .get_element_by_id("connect-button")
+        .expect("missing #connect-button")
+        .dyn_into::<web_sys::HtmlElement>()
+        .expect("#connect-button must be an element");
+    let status = document
+        .get_element_by_id("connect-status")
+        .expect("missing #connect-status")
+        .dyn_into::<web_sys::HtmlElement>()
+        .expect("#connect-status must be an element");
+    let connect_panel = document
+        .get_element_by_id("connect-panel")
+        .expect("missing #connect-panel")
+        .dyn_into::<web_sys::HtmlElement>()
+        .expect("#connect-panel must be an element");
+
+    if input.value().trim().is_empty() {
+        input.set_value(&crate::net::server_url_from_arg(None).unwrap());
+    }
+
+    let button_for_click = button.clone();
+    let closure = Closure::wrap(Box::new(move |_event: web_sys::Event| {
+        let server_url = input.value().trim().to_string();
+        if server_url.is_empty() {
+            status.set_inner_text("Enter a WebSocket server URL.");
+            return;
+        }
+
+        status.set_inner_text("Connecting...");
+        let _ = button_for_click.set_attribute("disabled", "true");
+
+        let event_loop = match winit::event_loop::EventLoop::<AppEvent>::with_user_event().build() {
+            Ok(event_loop) => event_loop,
+            Err(error) => {
+                status.set_inner_text(&format!("Failed to create event loop: {error}"));
+                let _ = button_for_click.remove_attribute("disabled");
+                return;
+            }
+        };
+        let event_proxy = event_loop.create_proxy();
+        connect_panel.set_class_name("connect-panel connected");
+        event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
+        event_loop.spawn_app(App::new(server_url).with_event_proxy(event_proxy));
+    }) as Box<dyn FnMut(_)>);
+
+    button
+        .add_event_listener_with_callback("click", closure.as_ref().unchecked_ref())
+        .expect("failed to install connect handler");
+    closure.forget();
 }
+
+
