@@ -31,8 +31,8 @@ pub fn spawn_renderer(
     let _ = sender.send(renderer);
 }
 
-pub fn on_escape(event_loop: &ActiveEventLoop) {
-    event_loop.exit();
+pub fn on_escape(_event_loop: &ActiveEventLoop) {
+    // Native cursor release is handled through winit in the app event loop.
 }
 
 /// No-op on native — the OS drives `WindowEvent::Resized` directly.

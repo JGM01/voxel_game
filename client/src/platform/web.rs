@@ -89,7 +89,7 @@ pub fn on_escape(_event_loop: &ActiveEventLoop) {
 }
 
 /// Fetches the canvas element from the DOM. Panics if the element is
-/// missing or is the wrong type — both are fatal configuration errors.
+/// missing or is the wrong type; both are fatal configuration errors.
 fn canvas() -> web_sys::HtmlCanvasElement {
     web_sys::window()
         .unwrap()

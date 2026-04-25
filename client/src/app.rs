@@ -12,6 +12,9 @@ use winit::{
 
 use crate::{platform, renderer::Renderer};
 
+#[cfg(not(target_arch = "wasm32"))]
+use crate::net::{NetworkClient, NetworkEvent};
+
 #[derive(Default)]
 pub struct App {
     window: Option<Arc<Window>>,
@@ -20,6 +23,68 @@ pub struct App {
     last_render_time: Option<Instant>,
     last_size: (u32, u32),
     cursor_locked: bool,
+    #[cfg(not(target_arch = "wasm32"))]
+    network: Option<NetworkClient>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl App {
+    pub fn new(server_url: String) -> Self {
+        Self {
+            network: Some(NetworkClient::connect(server_url)),
+            ..Default::default()
+        }
+    }
+
+    fn drain_network(&mut self, event_loop: &ActiveEventLoop) {
+        let Some(network) = self.network.as_ref() else {
+            return;
+        };
+        let Some(renderer) = self.renderer.as_mut() else {
+            return;
+        };
+
+        loop {
+            match network.try_recv() {
+                Ok(NetworkEvent::Message(message)) => {
+                    if let Err(error) = renderer
+                        .scene
+                        .apply_server_message(&renderer.gpu.device, message)
+                    {
+                        log::error!("Server error: {error}");
+                        event_loop.exit();
+                        return;
+                    }
+                }
+                Ok(NetworkEvent::Fatal(error)) => {
+                    log::error!("Network error: {error}");
+                    event_loop.exit();
+                    return;
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => return,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    log::error!("Network thread disconnected");
+                    event_loop.exit();
+                    return;
+                }
+            }
+        }
+    }
+
+    fn send_network_message(&self, message: shared::protocol::ClientMessage) {
+        if let Some(network) = self.network.as_ref() {
+            network.send(message);
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl App {
+    pub fn new(_server_url: String) -> Self {
+        Self::default()
+    }
+
+    fn send_network_message(&self, _message: shared::protocol::ClientMessage) {}
 }
 
 impl ApplicationHandler for App {
@@ -63,7 +128,7 @@ impl ApplicationHandler for App {
                 if let Some(renderer) = self.renderer.as_mut() {
                     renderer
                         .scene
-                        .camera_controller
+                        .player_controller
                         .process_mouse(delta.0, delta.1);
                 }
             }
@@ -90,6 +155,9 @@ impl ApplicationHandler for App {
             }
         }
 
+        #[cfg(not(target_arch = "wasm32"))]
+        self.drain_network(event_loop);
+
         let Some(window) = self.window.as_ref() else {
             return;
         };
@@ -112,9 +180,12 @@ impl ApplicationHandler for App {
                     self.cursor_locked = true;
                 } else {
                     let is_right_click = button == winit::event::MouseButton::Right;
-                    renderer
+                    if let Some(message) = renderer
                         .scene
-                        .interact(&renderer.gpu.device, is_right_click);
+                        .interact(&renderer.gpu.device, is_right_click)
+                    {
+                        self.send_network_message(message);
+                    }
                 }
             }
             WindowEvent::KeyboardInput {
@@ -126,17 +197,25 @@ impl ApplicationHandler for App {
                     },
                 ..
             } => {
-                if state == winit::event::ElementState::Pressed
-                    && matches!(key_code, winit::keyboard::KeyCode::Escape)
-                {
-                    let _ = window.set_cursor_grab(winit::window::CursorGrabMode::None);
-                    window.set_cursor_visible(true);
-                    self.cursor_locked = false;
-                    platform::on_escape(event_loop);
+                if state == winit::event::ElementState::Pressed {
+                    match key_code {
+                        winit::keyboard::KeyCode::Escape => {
+                            let _ = window.set_cursor_grab(winit::window::CursorGrabMode::None);
+                            window.set_cursor_visible(true);
+                            self.cursor_locked = false;
+                            platform::on_escape(event_loop);
+                        }
+                        winit::keyboard::KeyCode::KeyQ => {
+                            log::info!("Quit requested. Exiting...");
+                            event_loop.exit();
+                            return;
+                        }
+                        _ => {}
+                    }
                 }
                 renderer
                     .scene
-                    .camera_controller
+                    .player_controller
                     .process_keyboard(key_code, state);
             }
             WindowEvent::Resized(PhysicalSize { width, height }) => {
@@ -155,7 +234,9 @@ impl ApplicationHandler for App {
                 let now = Instant::now();
                 let delta_time = now - *last_render_time;
                 *last_render_time = now;
-                renderer.render_frame(delta_time);
+                if let Some(message) = renderer.render_frame(delta_time) {
+                    self.send_network_message(message);
+                }
             }
             _ => (),
         }

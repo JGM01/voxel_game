@@ -21,9 +21,17 @@ async fn main() {
     tokio::spawn(game::game_task(game_rx));
 
     let app = net::router(game_tx);
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
-        .await
-        .unwrap();
+    let bind_addr = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "127.0.0.1:3000".to_string())
+        .parse::<SocketAddr>()
+        .unwrap_or_else(|error| {
+            eprintln!("invalid bind address; use an address like 127.0.0.1:3000 or 0.0.0.0:3000");
+            eprintln!("{error}");
+            std::process::exit(2);
+        });
+
+    let listener = tokio::net::TcpListener::bind(bind_addr).await.unwrap();
 
     tracing::debug!("listening on {}", listener.local_addr().unwrap());
     axum::serve(

@@ -1,5 +1,6 @@
 use web_time::Duration;
 
+use shared::protocol::ClientMessage;
 use wgpu::{
     CommandEncoderDescriptor, LoadOp, Operations, RenderPassColorAttachment,
     RenderPassDepthStencilAttachment, RenderPassDescriptor, StoreOp,
@@ -38,10 +39,10 @@ impl Renderer {
         self.depth_texture_view = self.gpu.create_depth_texture(width, height);
     }
 
-    pub fn render_frame(&mut self, delta_time: Duration) {
+    pub fn render_frame(&mut self, delta_time: Duration) -> Option<ClientMessage> {
         let delta_time = delta_time.as_secs_f32();
 
-        self.scene.update(
+        let outbound = self.scene.update(
             &self.gpu.device,
             &self.gpu.queue,
             self.gpu.aspect_ratio(),
@@ -118,5 +119,6 @@ impl Renderer {
 
         self.gpu.queue.submit(std::iter::once(encoder.finish()));
         surface_texture.present();
+        outbound
     }
 }
