@@ -71,11 +71,10 @@ impl Scene {
             if place_block {
                 // Place a block adjacent to the face we hit
                 let place_pos = hit_pos + hit_normal;
-                self.chunk
-                    .set_block(place_pos.x, place_pos.y, place_pos.z, 3); // Place a stone block
+                self.chunk.set_block(place_pos, 3); // Place a stone block
             } else {
                 // Destroy the block we hit
-                self.chunk.set_block(hit_pos.x, hit_pos.y, hit_pos.z, 0);
+                self.chunk.set_block(hit_pos, 0);
             }
 
             // Re-run the CPU mesher
