@@ -4,7 +4,7 @@ use winit::{event::ElementState, keyboard::KeyCode};
 
 use crate::camera::Camera;
 
-const MOVE_SEND_INTERVAL: Duration = Duration::from_millis(50);
+const MOVE_SEND_INTERVAL: Duration = Duration::from_millis(shared::constants::MOVE_SEND_INTERVAL_MS);
 const POSITION_EPSILON_SQUARED: f32 = 0.0001;
 const ROTATION_EPSILON: f32 = 0.0001;
 

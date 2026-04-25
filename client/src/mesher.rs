@@ -1,3 +1,4 @@
+use shared::block;
 use shared::chunk::{CHUNK_SIZE, Chunk};
 
 use crate::vertex::Vertex;
@@ -12,20 +13,20 @@ pub fn generate_mesh(chunk: &Chunk) -> (Vec<Vertex>, Vec<u32>) {
                 let pos = glam::UVec3::new(x as u32, y as u32, z as u32);
                 let block_id = chunk.blocks[Chunk::index(pos)];
 
-                if block_id == 0 {
+                if block_id == block::AIR {
                     continue;
                 }
 
                 let block_pos = pos.as_ivec3();
 
                 let color = match block_id {
-                    1 => [0.2, 0.8, 0.2],
-                    2 => [0.4, 0.25, 0.1],
-                    3 => [0.5, 0.5, 0.5],
+                    block::GRASS => [0.2, 0.8, 0.2],
+                    block::DIRT => [0.4, 0.25, 0.1],
+                    block::STONE => [0.5, 0.5, 0.5],
                     _ => [1.0, 0.0, 1.0],
                 };
 
-                if chunk.get_block(block_pos + glam::IVec3::Y) == 0 {
+                if chunk.get_block(block_pos + glam::IVec3::Y) == block::AIR {
                     add_face(
                         &mut vertices,
                         &mut indices,
@@ -41,7 +42,7 @@ pub fn generate_mesh(chunk: &Chunk) -> (Vec<Vertex>, Vec<u32>) {
                     );
                 }
 
-                if chunk.get_block(block_pos - glam::IVec3::Y) == 0 {
+                if chunk.get_block(block_pos - glam::IVec3::Y) == block::AIR {
                     add_face(
                         &mut vertices,
                         &mut indices,
@@ -57,7 +58,7 @@ pub fn generate_mesh(chunk: &Chunk) -> (Vec<Vertex>, Vec<u32>) {
                     );
                 }
 
-                if chunk.get_block(block_pos + glam::IVec3::X) == 0 {
+                if chunk.get_block(block_pos + glam::IVec3::X) == block::AIR {
                     add_face(
                         &mut vertices,
                         &mut indices,
@@ -73,7 +74,7 @@ pub fn generate_mesh(chunk: &Chunk) -> (Vec<Vertex>, Vec<u32>) {
                     );
                 }
 
-                if chunk.get_block(block_pos - glam::IVec3::X) == 0 {
+                if chunk.get_block(block_pos - glam::IVec3::X) == block::AIR {
                     add_face(
                         &mut vertices,
                         &mut indices,
@@ -89,7 +90,7 @@ pub fn generate_mesh(chunk: &Chunk) -> (Vec<Vertex>, Vec<u32>) {
                     );
                 }
 
-                if chunk.get_block(block_pos + glam::IVec3::Z) == 0 {
+                if chunk.get_block(block_pos + glam::IVec3::Z) == block::AIR {
                     add_face(
                         &mut vertices,
                         &mut indices,
@@ -105,7 +106,7 @@ pub fn generate_mesh(chunk: &Chunk) -> (Vec<Vertex>, Vec<u32>) {
                     );
                 }
 
-                if chunk.get_block(block_pos - glam::IVec3::Z) == 0 {
+                if chunk.get_block(block_pos - glam::IVec3::Z) == block::AIR {
                     add_face(
                         &mut vertices,
                         &mut indices,

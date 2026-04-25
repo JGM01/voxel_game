@@ -1,3 +1,5 @@
+use crate::block;
+
 pub const CHUNK_SIZE: usize = 64;
 const CHUNK_VOLUME: usize = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
 
@@ -8,7 +10,7 @@ pub struct Chunk {
 
 impl Chunk {
     pub fn new() -> Self {
-        let mut blocks = Box::new([0; CHUNK_VOLUME]);
+        let mut blocks = Box::new([block::AIR; CHUNK_VOLUME]);
 
         for x in 0..CHUNK_SIZE {
             for y in 0..CHUNK_SIZE {
@@ -16,11 +18,11 @@ impl Chunk {
                     let pos = glam::UVec3::new(x as u32, y as u32, z as u32);
 
                     if y < 4 {
-                        blocks[Self::index(pos)] = 3;
+                        blocks[Self::index(pos)] = block::STONE;
                     } else if y == 4 {
-                        blocks[Self::index(pos)] = 2;
+                        blocks[Self::index(pos)] = block::DIRT;
                     } else if y == 5 {
-                        blocks[Self::index(pos)] = 1;
+                        blocks[Self::index(pos)] = block::GRASS;
                     }
                 }
             }
@@ -31,7 +33,7 @@ impl Chunk {
 
     pub fn empty() -> Self {
         Self {
-            blocks: Box::new([0; CHUNK_VOLUME]),
+            blocks: Box::new([block::AIR; CHUNK_VOLUME]),
         }
     }
 
@@ -39,28 +41,25 @@ impl Chunk {
         pos.x as usize + (pos.y as usize * CHUNK_SIZE) + (pos.z as usize * CHUNK_SIZE * CHUNK_SIZE)
     }
 
+    pub fn contains(pos: glam::IVec3) -> bool {
+        pos.x >= 0
+            && pos.y >= 0
+            && pos.z >= 0
+            && pos.x < CHUNK_SIZE as i32
+            && pos.y < CHUNK_SIZE as i32
+            && pos.z < CHUNK_SIZE as i32
+    }
+
     pub fn get_block(&self, pos: glam::IVec3) -> u8 {
-        if pos.x < 0
-            || pos.x >= CHUNK_SIZE as i32
-            || pos.y < 0
-            || pos.y >= CHUNK_SIZE as i32
-            || pos.z < 0
-            || pos.z >= CHUNK_SIZE as i32
-        {
-            return 0;
+        if !Self::contains(pos) {
+            return block::AIR;
         }
 
         self.blocks[Self::index(pos.as_uvec3())]
     }
 
     pub fn set_block(&mut self, pos: glam::IVec3, id: u8) {
-        if pos.x < 0
-            || pos.x >= CHUNK_SIZE as i32
-            || pos.y < 0
-            || pos.y >= CHUNK_SIZE as i32
-            || pos.z < 0
-            || pos.z >= CHUNK_SIZE as i32
-        {
+        if !Self::contains(pos) {
             return;
         }
 

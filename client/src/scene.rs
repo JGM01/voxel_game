@@ -38,7 +38,7 @@ impl Scene {
         let chunk = Chunk::new();
         let (vertices, indices) = generate_mesh(&chunk);
         let chunk_mesh = Mesh::new(device, &vertices, &indices);
-        let player = Player::new(glam::Vec3::new(8.0, 15.0, -15.0), glam::Quat::IDENTITY, 1.0);
+        let player = Player::new(glam::Vec3::from_array(shared::constants::SPAWN_POSITION), glam::Quat::IDENTITY, 1.0);
         let player_controller = PlayerController::new(15.0, 0.2, 0.1);
 
         let uniform = UniformBinding::new(device);
@@ -72,14 +72,14 @@ impl Scene {
             if place_block {
                 // Place a block adjacent to the face we hit
                 let place_pos = hit_pos + hit_normal;
-                self.set_block_and_remesh(device, place_pos, 3);
+                self.set_block_and_remesh(device, place_pos, shared::block::STONE);
                 Some(ClientMessage::PlaceBlock {
                     position: place_pos.to_array(),
-                    block_type: 3,
+                    block_type: shared::block::STONE,
                 })
             } else {
                 // Destroy the block we hit
-                self.set_block_and_remesh(device, hit_pos, 0);
+                self.set_block_and_remesh(device, hit_pos, shared::block::AIR);
                 Some(ClientMessage::BreakBlock {
                     position: hit_pos.to_array(),
                 })
@@ -142,7 +142,7 @@ impl Scene {
         if self.player.player_id.is_some() && self.player.should_send_move() {
             return Some(ClientMessage::MovePlayer {
                 position: self.player.position.to_array(),
-                rotation: quat_to_array(self.player.rotation),
+                rotation: shared::math::quat_to_array(self.player.rotation),
             });
         }
 
@@ -220,14 +220,14 @@ impl Scene {
             if transform.player_id == player_id {
                 self.player.set_transform(
                     glam::Vec3::from_array(transform.position),
-                    quat_from_array(transform.rotation),
+                    shared::math::quat_from_array(transform.rotation),
                 );
             } else {
                 self.remote_players.insert(
                     transform.player_id,
                     RemotePlayer {
                         position: glam::Vec3::from_array(transform.position),
-                        rotation: quat_from_array(transform.rotation),
+                        rotation: shared::math::quat_from_array(transform.rotation),
                     },
                 );
             }
@@ -244,7 +244,7 @@ impl Scene {
 
         let remote = RemotePlayer {
             position: glam::Vec3::from_array(transform.position),
-            rotation: quat_from_array(transform.rotation),
+            rotation: shared::math::quat_from_array(transform.rotation),
         };
 
         if self.remote_players.get(&transform.player_id) == Some(&remote) {
@@ -646,13 +646,7 @@ fn add_box_from_corners(
     }
 }
 
-fn quat_to_array(rotation: glam::Quat) -> [f32; 4] {
-    [rotation.x, rotation.y, rotation.z, rotation.w]
-}
 
-fn quat_from_array(rotation: [f32; 4]) -> glam::Quat {
-    glam::Quat::from_xyzw(rotation[0], rotation[1], rotation[2], rotation[3]).normalize()
-}
 
 #[cfg(test)]
 mod tests {

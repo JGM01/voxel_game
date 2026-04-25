@@ -12,7 +12,7 @@ use shared::protocol::{ClientMessage, PlayerId, ServerMessage};
 use tokio::sync::{mpsc, oneshot};
 use tower_http::trace::{DefaultMakeSpan, TraceLayer};
 
-use crate::game::{GameCommand, quat_from_array};
+use crate::game::GameCommand;
 
 #[derive(Clone)]
 struct AppState {
@@ -161,7 +161,7 @@ async fn handle_client_text(
         ClientMessage::MovePlayer { position, rotation } => GameCommand::MovePlayer {
             player_id,
             position: glam::Vec3::from_array(position),
-            rotation: quat_from_array(rotation),
+            rotation: shared::math::quat_from_array(rotation),
         },
         ClientMessage::PlaceBlock {
             position,

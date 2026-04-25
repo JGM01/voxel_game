@@ -9,9 +9,9 @@ use tokio::{
     time,
 };
 
-pub(crate) const TICK_HZ: u64 = 5;
-const TICK_DURATION: Duration = Duration::from_millis(1_000 / TICK_HZ);
-const SPAWN_POSITION: glam::Vec3 = glam::Vec3::new(8.0, 15.0, -15.0);
+pub(crate) const TICK_HZ: u64 = shared::constants::TICK_HZ;
+const TICK_DURATION: Duration = Duration::from_millis(shared::constants::TICK_DURATION_MS);
+const SPAWN_POSITION: glam::Vec3 = glam::Vec3::from_array(shared::constants::SPAWN_POSITION);
 
 #[derive(Debug)]
 struct World {
@@ -154,7 +154,7 @@ async fn handle_game_command(
             position,
             block_type,
         } => {
-            if world.players.contains_key(&player_id) && chunk_contains(position) {
+            if world.players.contains_key(&player_id) && Chunk::contains(position) {
                 world.chunk.set_block(position, block_type);
                 pending.blocks.push(DirtyBlock {
                     update: BlockUpdate {
@@ -169,12 +169,12 @@ async fn handle_game_command(
             player_id,
             position,
         } => {
-            if world.players.contains_key(&player_id) && chunk_contains(position) {
-                world.chunk.set_block(position, 0);
+            if world.players.contains_key(&player_id) && Chunk::contains(position) {
+                world.chunk.set_block(position, shared::block::AIR);
                 pending.blocks.push(DirtyBlock {
                     update: BlockUpdate {
                         position: position.to_array(),
-                        block_type: 0,
+                        block_type: shared::block::AIR,
                     },
                     source: player_id,
                 });
@@ -244,26 +244,13 @@ fn player_transform(player_id: PlayerId, world: &World) -> Option<PlayerTransfor
     Some(PlayerTransform {
         player_id,
         position: player.position.to_array(),
-        rotation: quat_to_array(player.rotation),
+        rotation: shared::math::quat_to_array(player.rotation),
     })
 }
 
-fn quat_to_array(rotation: glam::Quat) -> [f32; 4] {
-    [rotation.x, rotation.y, rotation.z, rotation.w]
-}
 
-pub(crate) fn quat_from_array(rotation: [f32; 4]) -> glam::Quat {
-    glam::Quat::from_xyzw(rotation[0], rotation[1], rotation[2], rotation[3])
-}
 
-fn chunk_contains(position: glam::IVec3) -> bool {
-    position.x >= 0
-        && position.y >= 0
-        && position.z >= 0
-        && position.x < CHUNK_SIZE as i32
-        && position.y < CHUNK_SIZE as i32
-        && position.z < CHUNK_SIZE as i32
-}
+
 
 #[cfg(test)]
 mod tests {

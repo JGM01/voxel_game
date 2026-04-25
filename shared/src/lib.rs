@@ -1,4 +1,7 @@
+pub mod block;
 pub mod chunk;
+pub mod constants;
+pub mod math;
 pub mod protocol;
 
 pub fn add(left: u64, right: u64) -> u64 {
