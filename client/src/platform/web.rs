@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use futures::channel::oneshot;
+use std::future::Future;
 use wasm_bindgen::{JsCast, closure::Closure};
 use winit::{
     event_loop::{ActiveEventLoop, EventLoopProxy},
@@ -8,7 +8,7 @@ use winit::{
     window::{Window, WindowAttributes},
 };
 
-use crate::{app::AppEvent, renderer::Renderer};
+use crate::events::AppEvent;
 
 pub fn init_logging() {
     std::panic::set_hook(Box::new(console_error_panic_hook::hook));
@@ -27,18 +27,11 @@ pub fn initial_size(_window: &Arc<Window>) -> (u32, u32) {
     (width, height)
 }
 
-pub fn spawn_renderer(
-    window: Arc<Window>,
-    width: u32,
-    height: u32,
-    sender: oneshot::Sender<Renderer>,
-) {
-    wasm_bindgen_futures::spawn_local(async move {
-        let renderer = Renderer::new(window, width, height).await;
-        if sender.send(renderer).is_err() {
-            log::error!("Failed to create and send renderer!");
-        }
-    });
+pub fn spawn_local<F>(future: F)
+where
+    F: Future<Output = ()> + 'static,
+{
+    wasm_bindgen_futures::spawn_local(future);
 }
 
 /// Installs a `ResizeObserver` on the canvas so that CSS-driven resizes

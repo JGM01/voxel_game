@@ -11,6 +11,7 @@ use winit::{
 };
 
 use crate::{
+    events::AppEvent,
     input::{InputAccumulator, Interaction},
     net::{NetworkClient, NetworkEvent, TryRecvNetworkEventError},
     platform,
@@ -32,11 +33,6 @@ pub struct App {
     network: Option<NetworkClient>,
     network_disconnected: bool,
     event_proxy: Option<EventLoopProxy<AppEvent>>,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub enum AppEvent {
-    CursorLockChanged(bool),
 }
 
 impl App {
@@ -144,7 +140,12 @@ impl ApplicationHandler<AppEvent> for App {
 
         let (sender, receiver) = oneshot::channel();
         self.renderer_receiver = Some(receiver);
-        platform::spawn_renderer(window_handle, width, height, sender);
+        platform::spawn_local(async move {
+            let renderer = Renderer::new(window_handle, width, height).await;
+            if sender.send(renderer).is_err() {
+                log::error!("Failed to create and send renderer!");
+            }
+        });
 
         self.last_render_time = Some(Instant::now());
     }

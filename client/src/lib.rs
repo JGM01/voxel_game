@@ -1,5 +1,6 @@
 pub mod app;
 pub mod camera;
+pub mod events;
 pub mod gpu;
 pub mod input;
 pub mod mesh;
@@ -13,7 +14,8 @@ pub mod uniform;
 pub mod vertex;
 pub mod world;
 
-pub use app::{App, AppEvent};
+pub use app::App;
+pub use events::AppEvent;
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;

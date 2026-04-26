@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
-use futures::channel::oneshot;
+use std::future::Future;
 use winit::{
     event_loop::{ActiveEventLoop, EventLoopProxy},
     window::{CursorGrabMode, Window, WindowAttributes},
 };
 
-use crate::{app::AppEvent, renderer::Renderer};
+use crate::events::AppEvent;
 
 pub fn init_logging() {
     env_logger::init();
@@ -21,14 +21,11 @@ pub fn initial_size(window: &Arc<Window>) -> (u32, u32) {
     (size.width, size.height)
 }
 
-pub fn spawn_renderer(
-    window: Arc<Window>,
-    width: u32,
-    height: u32,
-    sender: oneshot::Sender<Renderer>,
-) {
-    let renderer = pollster::block_on(Renderer::new(window, width, height));
-    let _ = sender.send(renderer);
+pub fn spawn_local<F>(future: F)
+where
+    F: Future<Output = ()> + 'static,
+{
+    pollster::block_on(future);
 }
 
 pub fn on_escape(_event_loop: &ActiveEventLoop) {
