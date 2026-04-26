@@ -16,12 +16,3 @@
 **Problem** The client relies on `Chunk::raycast()` to figure out what block they are looking at to break/place. The server just blindly accepts `ClientMessage::BreakBlock` at any distance. A hacked client could break blocks 1,000 units away.
 **Solution**
 - Since `Chunk::raycast` is already shared, the server can use it to validate interactions.
-
-### Split/Abstract Client Systems
-**Problem** The client's various systems don't strike the right balance of control over the logic that exist in the program.
-**Solution** 
-- `Scene` and `Player` should be shaken up into a new setup.
-- `LocalState` will be a big PoD struct that holds the client's current knowledge of the chunk, player list with positions/rotations, and any other future state that gets passed between client & server. Should consist of arrays or structs of arrays, should not contain arrays of structs.
-- I/O should not be in the player area, player just gets sent directions to move/rotate as needed, controls should be entirely an app level / it's own thing.
-- `Scene` should just be the rendering scene, responsible for aggregating the meshes & such for a render pass (handled in `renderer.rs`). It shouldn't own player_controller, remote_players, or the chunk itself. It should own exactly what is necessary to render.
-- Somehow become more ECS & Data-oriented-design

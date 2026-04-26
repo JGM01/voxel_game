@@ -11,9 +11,12 @@ use winit::{
 };
 
 use crate::{
+    input::{InputAccumulator, Interaction},
     net::{NetworkClient, NetworkEvent, TryRecvNetworkEventError},
     platform,
     renderer::Renderer,
+    sim,
+    world::World,
 };
 
 #[derive(Default)]
@@ -23,6 +26,8 @@ pub struct App {
     renderer_receiver: Option<oneshot::Receiver<Renderer>>,
     last_render_time: Option<Instant>,
     last_size: (u32, u32),
+    world: World,
+    input: InputAccumulator,
     cursor_locked: bool,
     network: Option<NetworkClient>,
     network_disconnected: bool,
@@ -55,9 +60,6 @@ impl App {
         let Some(network) = self.network.as_ref() else {
             return;
         };
-        let Some(renderer) = self.renderer.as_mut() else {
-            return;
-        };
 
         loop {
             match network.try_recv() {
@@ -66,10 +68,7 @@ impl App {
                         platform::on_network_connected();
                     }
 
-                    if let Err(error) = renderer
-                        .scene
-                        .apply_server_message(&renderer.gpu.device, message)
-                    {
+                    if let Err(error) = self.world.apply_server_message(message) {
                         log::error!("Server error: {error}");
                         event_loop.exit();
                         return;
@@ -158,12 +157,7 @@ impl ApplicationHandler<AppEvent> for App {
     ) {
         if let winit::event::DeviceEvent::MouseMotion { delta } = event {
             if self.cursor_locked {
-                if let Some(renderer) = self.renderer.as_mut() {
-                    renderer
-                        .scene
-                        .player_controller
-                        .process_mouse(delta.0, delta.1);
-                }
+                self.input.process_mouse(delta.0, delta.1);
             }
         }
     }
@@ -194,12 +188,6 @@ impl ApplicationHandler<AppEvent> for App {
             return;
         };
 
-        let (Some(renderer), Some(last_render_time)) =
-            (self.renderer.as_mut(), self.last_render_time.as_mut())
-        else {
-            return;
-        };
-
         match event {
             WindowEvent::MouseInput {
                 state: winit::event::ElementState::Pressed,
@@ -209,12 +197,14 @@ impl ApplicationHandler<AppEvent> for App {
                 if !self.cursor_locked {
                     self.cursor_locked = platform::lock_cursor(window);
                 } else {
-                    let is_right_click = button == winit::event::MouseButton::Right;
-                    if let Some(message) = renderer
-                        .scene
-                        .interact(&renderer.gpu.device, is_right_click)
-                    {
-                        self.send_network_message(message);
+                    match button {
+                        winit::event::MouseButton::Left => {
+                            self.input.queue_interact(Interaction::Break);
+                        }
+                        winit::event::MouseButton::Right => {
+                            self.input.queue_interact(Interaction::Place);
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -242,17 +232,16 @@ impl ApplicationHandler<AppEvent> for App {
                         _ => {}
                     }
                 }
-                renderer
-                    .scene
-                    .player_controller
-                    .process_keyboard(key_code, state);
+                self.input.process_key(key_code, state);
             }
             WindowEvent::Resized(PhysicalSize { width, height }) => {
                 if width == 0 || height == 0 {
                     return;
                 }
                 log::info!("Resizing renderer surface to: ({width}, {height})");
-                renderer.resize(width, height);
+                if let Some(renderer) = self.renderer.as_mut() {
+                    renderer.resize(width, height);
+                }
                 self.last_size = (width, height);
             }
             WindowEvent::CloseRequested => {
@@ -260,10 +249,24 @@ impl ApplicationHandler<AppEvent> for App {
                 event_loop.exit();
             }
             WindowEvent::RedrawRequested => {
-                let now = Instant::now();
-                let delta_time = now - *last_render_time;
-                *last_render_time = now;
-                if let Some(message) = renderer.render_frame(delta_time) {
+                let messages = if let (Some(renderer), Some(last_render_time)) =
+                    (self.renderer.as_mut(), self.last_render_time.as_mut())
+                {
+                    let now = Instant::now();
+                    let delta_time = (now - *last_render_time).as_secs_f32();
+                    *last_render_time = now;
+
+                    self.world.player.camera.aspect = renderer.gpu.aspect_ratio();
+                    let input = self.input.consume();
+                    let messages = sim::tick(&mut self.world, &input, delta_time);
+                    renderer.sync(&mut self.world);
+                    renderer.render(&self.world);
+                    messages
+                } else {
+                    Vec::new()
+                };
+
+                for message in messages {
                     self.send_network_message(message);
                 }
             }

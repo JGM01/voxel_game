@@ -1,15 +1,17 @@
 pub mod app;
 pub mod camera;
 pub mod gpu;
+pub mod input;
 pub mod mesh;
 pub mod mesher;
 pub mod net;
 pub mod platform;
 pub mod player;
 pub mod renderer;
-pub mod scene;
+pub mod sim;
 pub mod uniform;
 pub mod vertex;
+pub mod world;
 
 pub use app::{App, AppEvent};
 
@@ -85,5 +87,3 @@ pub fn wasm_main() {
         .expect("failed to install connect handler");
     closure.forget();
 }
-
-
